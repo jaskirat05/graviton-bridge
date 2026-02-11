@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from typing import Optional
 
 from aiohttp import web
 from aiohttp.web_request import Request
 
-import folder_paths
 import server
 
 # Expose frontend extension JS under /extensions/graviton_bridge/*
@@ -17,41 +16,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 
 ROOT_DIR = Path(__file__).resolve().parent
 LOCAL_TEMPLATES_DIR = ROOT_DIR / "templates"
-ENV_TEMPLATE_DIRS = "GRAVITON_TEMPLATE_DIRS"
-
-
-def _register_template_dir(path: Path, *, is_default: bool = False) -> bool:
-    """Register a templates directory with Comfy's folder_paths registry."""
-    resolved = path.expanduser().resolve()
-    if not resolved.exists() or not resolved.is_dir():
-        return False
-
-    folder_paths.add_model_folder_path("templates", str(resolved), is_default=is_default)
-    return True
-
-
-def _load_initial_template_dirs() -> None:
-    # Always register this package's local templates folder.
-    LOCAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-    _register_template_dir(LOCAL_TEMPLATES_DIR)
-
-    # Optionally register additional directories from env (colon-separated).
-    raw_value = os.getenv(ENV_TEMPLATE_DIRS, "").strip()
-    if not raw_value:
-        return
-
-    for raw_path in raw_value.split(os.pathsep):
-        trimmed = raw_path.strip()
-        if not trimmed:
-            continue
-        _register_template_dir(Path(trimmed))
-
-
-def _list_registered_template_paths() -> list[str]:
-    try:
-        return folder_paths.get_folder_paths("templates")
-    except Exception:
-        return []
+ALLOWED_TEMPLATE_SUFFIXES = {".json", ".flow"}
 
 
 def _safe_templates_in_dir(path: Path) -> list[str]:
@@ -68,66 +33,124 @@ def _safe_templates_in_dir(path: Path) -> list[str]:
     return files
 
 
-@server.PromptServer.instance.routes.get("/graviton-bridge/templates/paths")
-async def get_template_paths(_request: Request) -> web.Response:
-    return web.json_response(
-        {
-            "paths": _list_registered_template_paths(),
-            "local_templates_dir": str(LOCAL_TEMPLATES_DIR),
-            "env_var": ENV_TEMPLATE_DIRS,
-        }
-    )
+def _sanitize_template_filename(raw_name: str) -> Optional[str]:
+    """Validate and sanitize uploaded/downloaded template filename."""
+    filename = Path((raw_name or "").strip()).name
+    if not filename:
+        return None
+    if filename in {".", ".."}:
+        return None
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_TEMPLATE_SUFFIXES:
+        return None
+    return filename
 
 
-@server.PromptServer.instance.routes.post("/graviton-bridge/templates/add")
-async def add_template_path(request: Request) -> web.Response:
-    try:
-        payload = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid JSON payload"}, status=400)
+def _resolve_local_template_file(raw_name: str) -> Optional[Path]:
+    filename = _sanitize_template_filename(raw_name)
+    if not filename:
+        return None
+    target = (LOCAL_TEMPLATES_DIR / filename).resolve()
+    if LOCAL_TEMPLATES_DIR.resolve() not in target.parents:
+        return None
+    return target
 
-    raw_path = (payload.get("path") or "").strip()
-    if not raw_path:
-        return web.json_response({"error": "Field 'path' is required"}, status=400)
 
-    is_default = bool(payload.get("is_default", False))
-    ok = _register_template_dir(Path(raw_path), is_default=is_default)
-    if not ok:
-        return web.json_response(
-            {"error": "Path does not exist or is not a directory", "path": raw_path},
-            status=400,
+@server.PromptServer.instance.routes.get("/graviton-bridge/templates")
+async def list_local_templates(_request: Request) -> web.Response:
+    """List files hosted by graviton_bridge itself."""
+    LOCAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+    files = []
+    for name in _safe_templates_in_dir(LOCAL_TEMPLATES_DIR):
+        p = LOCAL_TEMPLATES_DIR / name
+        stat = p.stat()
+        files.append(
+            {
+                "filename": name,
+                "size_bytes": stat.st_size,
+                "modified_at": int(stat.st_mtime),
+            }
         )
 
     return web.json_response(
         {
-            "ok": True,
-            "added": str(Path(raw_path).expanduser().resolve()),
-            "paths": _list_registered_template_paths(),
+            "path": str(LOCAL_TEMPLATES_DIR.resolve()),
+            "count": len(files),
+            "files": files,
         }
     )
 
 
-@server.PromptServer.instance.routes.get("/graviton-bridge/templates/files")
-async def list_template_files(request: Request) -> web.Response:
-    raw_path = (request.query.get("path") or "").strip()
-    if raw_path:
-        chosen = Path(raw_path).expanduser().resolve()
-        if str(chosen) not in _list_registered_template_paths():
+@server.PromptServer.instance.routes.get("/graviton-bridge/templates/download/{filename}")
+async def download_local_template(request: Request) -> web.StreamResponse:
+    """Download a template file from this custom node's local templates dir."""
+    target = _resolve_local_template_file(request.match_info.get("filename", ""))
+    if target is None:
+        return web.json_response({"error": "Invalid filename"}, status=400)
+    if not target.exists() or not target.is_file():
+        return web.json_response({"error": "Template file not found"}, status=404)
+    return web.FileResponse(
+        path=target,
+        headers={"Content-Disposition": f'attachment; filename="{target.name}"'},
+    )
+
+
+@server.PromptServer.instance.routes.post("/graviton-bridge/templates/upload")
+async def upload_local_template(request: Request) -> web.Response:
+    """
+    Upload template to this custom node's local templates dir.
+
+    Supports:
+    - multipart/form-data with field "file"
+    - JSON body { "filename": "...", "content": "..." }
+    """
+    LOCAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+    filename = ""
+    content: bytes
+
+    if request.content_type.startswith("multipart/"):
+        reader = await request.multipart()
+        part = await reader.next()
+        if part is None or part.name != "file":
             return web.json_response(
-                {"error": "Path is not registered in templates", "path": str(chosen)},
+                {"error": "Expected multipart field named 'file'"},
                 status=400,
             )
-        return web.json_response({"path": str(chosen), "files": _safe_templates_in_dir(chosen)})
+        filename = part.filename or ""
+        content = await part.read(decode=False)
+    else:
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid request body"}, status=400)
+        filename = payload.get("filename", "")
+        text_content = payload.get("content")
+        if not isinstance(text_content, str):
+            return web.json_response(
+                {"error": "JSON body must include string field 'content'"},
+                status=400,
+            )
+        content = text_content.encode("utf-8")
 
-    result = []
-    for p in _list_registered_template_paths():
-        path = Path(p)
-        result.append({"path": p, "files": _safe_templates_in_dir(path)})
+    target = _resolve_local_template_file(filename)
+    if target is None:
+        return web.json_response(
+            {"error": "Invalid filename. Allowed extensions: .json, .flow"},
+            status=400,
+        )
 
-    return web.json_response({"entries": result})
+    target.write_bytes(content)
+    return web.json_response(
+        {
+            "ok": True,
+            "filename": target.name,
+            "path": str(target),
+            "size_bytes": len(content),
+        }
+    )
 
-
-_load_initial_template_dirs()
+LOCAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",

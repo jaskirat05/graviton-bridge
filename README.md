@@ -1,7 +1,7 @@
 # graviton_bridge (Comfy custom-node package)
 
 This package provides:
-- dynamic template directory registration (without editing `folder_paths.py`)
+- template file hosting endpoints under this custom node directory
 - a lightweight iframe bridge extension for workflow import/export
 
 ## Install on Comfy server
@@ -15,18 +15,10 @@ git clone <YOUR_GIT_REMOTE_URL> graviton_bridge
 
 Restart ComfyUI.
 
-## Template directory management
-
-On startup, the package auto-registers:
-- `<this package>/templates`
-
-
-
 ### Routes
 
-- `GET /graviton-bridge/templates/paths`
-- `POST /graviton-bridge/templates/add` with JSON body `{ "path": "/abs/path", "is_default": false }`
-- `GET /graviton-bridge/templates/files`
-- `GET /graviton-bridge/templates/files?path=/abs/path`
-
-
+- `GET /graviton-bridge/templates` (list files in `custom_nodes/graviton_bridge/templates`)
+- `GET /graviton-bridge/templates/download/{filename}` (download one `.json`/`.flow`)
+- `POST /graviton-bridge/templates/upload`:
+  - `multipart/form-data` with field `file`, or
+  - JSON `{ "filename": "my_template.json", "content": "{...}" }`
