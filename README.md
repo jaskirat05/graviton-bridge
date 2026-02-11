@@ -20,10 +20,7 @@ Restart ComfyUI.
 On startup, the package auto-registers:
 - `<this package>/templates`
 
-You can also provide extra template directories via env var:
-- `GRAVITON_TEMPLATE_DIRS=/abs/path/one:/abs/path/two`
 
-(`:` separator on Linux/macOS; use platform `os.pathsep` rules on Windows.)
 
 ### Routes
 
@@ -32,33 +29,4 @@ You can also provide extra template directories via env var:
 - `GET /graviton-bridge/templates/files`
 - `GET /graviton-bridge/templates/files?path=/abs/path`
 
-## Iframe bridge extension
 
-The extension script is exposed via `WEB_DIRECTORY` and loads automatically as:
-- `/extensions/graviton_bridge/graviton-bridge.js`
-
-Message contract:
-
-From host -> iframe (`window.postMessage`):
-- `{ source: "graviton-host", type: "ping" }`
-- `{ source: "graviton-host", type: "import-workflow", payload: { workflow } }`
-- `{ source: "graviton-host", type: "export-workflow" }`
-
-From iframe -> host:
-- `{ source: "graviton-bridge", type: "ready", payload: { version, hasGraph } }`
-- `{ source: "graviton-bridge", type: "pong", payload: { now } }`
-- `{ source: "graviton-bridge", type: "workflow-imported", payload: { workflow } }`
-- `{ source: "graviton-bridge", type: "workflow-exported", payload: { workflow } }`
-- `{ source: "graviton-bridge", type: "error", payload: { stage, message } }`
-
-## Publish this package as a separate git repo
-
-From `codex/graviton_bridge`:
-
-```bash
-git init
-git add .
-git commit -m "Initial graviton bridge custom node package"
-git remote add origin <YOUR_REMOTE_URL>
-git push -u origin main
-```
