@@ -76,12 +76,17 @@ async function importWorkflow(workflow) {
   if (!workflow) throw new Error('Missing workflow payload')
   await waitForCanvasReady()
   await waitForUiRuntimeReady()
+  if (typeof app.handleFile !== 'function') {
+    throw new Error('Comfy app.handleFile is unavailable')
+  }
+
+  const json = JSON.stringify(workflow)
+  const file = new File([json], 'graviton-bridge.json', {
+    type: 'application/json'
+  })
+
   const importOnce = async () => {
-    if (isApiPromptFormat(workflow) && typeof app.loadApiJson === 'function') {
-      app.loadApiJson(workflow, 'graviton-bridge')
-    } else {
-      await app.loadGraphData(workflow)
-    }
+    await app.handleFile(file, 'file_drop')
   }
 
   const maxAttempts = 30
