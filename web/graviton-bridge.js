@@ -21,6 +21,35 @@ function safeGraphSnapshot() {
   }
 }
 
+function isApiPromptFormat(workflow) {
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
+    return false
+  }
+  const values = Object.values(workflow)
+  if (!values.length) return false
+  return values.every((node) => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return false
+    return (
+      typeof node.class_type === 'string' &&
+      node.inputs &&
+      typeof node.inputs === 'object' &&
+      !Array.isArray(node.inputs)
+    )
+  })
+}
+
+async function exportPromptSnapshot() {
+  try {
+    if (typeof app.graphToPrompt === 'function') {
+      const promptResult = await app.graphToPrompt(app.rootGraph ?? app.graph)
+      return promptResult?.output ?? null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 async function waitForCanvasReady(timeoutMs = 10000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -35,9 +64,13 @@ async function waitForCanvasReady(timeoutMs = 10000) {
 async function importWorkflow(workflow) {
   if (!workflow) throw new Error('Missing workflow payload')
   await waitForCanvasReady()
-  await app.loadGraphData(workflow)
+  if (isApiPromptFormat(workflow) && typeof app.loadApiJson === 'function') {
+    app.loadApiJson(workflow, 'graviton-bridge')
+  } else {
+    await app.loadGraphData(workflow)
+  }
   app.graph?.setDirtyCanvas?.(true, true)
-  return safeGraphSnapshot()
+  return (await exportPromptSnapshot()) ?? safeGraphSnapshot()
 }
 
 app.registerExtension({
@@ -63,7 +96,8 @@ app.registerExtension({
       }
 
       if (data.type === 'export-workflow') {
-        postToParent('workflow-exported', { workflow: safeGraphSnapshot() })
+        const workflow = (await exportPromptSnapshot()) ?? safeGraphSnapshot()
+        postToParent('workflow-exported', { workflow })
         return
       }
 
