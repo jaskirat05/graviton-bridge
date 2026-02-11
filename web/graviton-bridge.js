@@ -61,14 +61,45 @@ async function waitForCanvasReady(timeoutMs = 10000) {
   throw new Error('Timed out waiting for Comfy canvas initialization')
 }
 
+async function waitForUiRuntimeReady(timeoutMs = 10000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const hasWindowApp = Boolean(window.app)
+    const hasWindowGraph = Boolean(window.graph)
+    if (hasWindowApp && hasWindowGraph) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error('Timed out waiting for Comfy UI runtime initialization')
+}
+
 async function importWorkflow(workflow) {
   if (!workflow) throw new Error('Missing workflow payload')
   await waitForCanvasReady()
-  if (isApiPromptFormat(workflow) && typeof app.loadApiJson === 'function') {
-    app.loadApiJson(workflow, 'graviton-bridge')
-  } else {
-    await app.loadGraphData(workflow)
+  await waitForUiRuntimeReady()
+  const importOnce = async () => {
+    if (isApiPromptFormat(workflow) && typeof app.loadApiJson === 'function') {
+      app.loadApiJson(workflow, 'graviton-bridge')
+    } else {
+      await app.loadGraphData(workflow)
+    }
   }
+
+  const maxAttempts = 30
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await importOnce()
+      break
+    } catch (error) {
+      const message = String(error?.message || error)
+      const isCanvasStoreRace = message.includes('getCanvas: canvas is null')
+      const isLastAttempt = attempt === maxAttempts
+      if (!isCanvasStoreRace || isLastAttempt) {
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
   app.graph?.setDirtyCanvas?.(true, true)
   return (await exportPromptSnapshot()) ?? safeGraphSnapshot()
 }
@@ -78,6 +109,7 @@ app.registerExtension({
   async setup() {
     try {
       await waitForCanvasReady()
+      await waitForUiRuntimeReady()
       postToParent('ready', { version: 1, hasGraph: Boolean(app.graph) })
     } catch (error) {
       postToParent('error', {
