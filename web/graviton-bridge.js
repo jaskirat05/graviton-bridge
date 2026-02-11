@@ -3,6 +3,7 @@ import { app } from "/scripts/app.js"
 const BRIDGE_NS = 'graviton-bridge'
 let bridgeReady = false
 const queuedMessages = []
+let debugLoggedOnce = false
 
 function postToParent(type, payload = {}) {
   window.parent?.postMessage(
@@ -61,6 +62,16 @@ function normalizeApiPrompt(workflow) {
   return normalized
 }
 
+function extractWorkflowPayload(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return input
+  }
+  if (input.workflow && typeof input.workflow === 'object') {
+    return input.workflow
+  }
+  return input
+}
+
 async function exportPromptSnapshot() {
   try {
     if (typeof app.graphToPrompt === 'function') {
@@ -117,9 +128,32 @@ async function importWorkflow(workflow) {
     throw new Error('Comfy app.handleFile is unavailable')
   }
 
-  const normalizedWorkflow = isApiPromptFormat(workflow)
-    ? normalizeApiPrompt(workflow)
-    : workflow
+  const extractedWorkflow = extractWorkflowPayload(workflow)
+  const normalizedWorkflow = isApiPromptFormat(extractedWorkflow)
+    ? normalizeApiPrompt(extractedWorkflow)
+    : extractedWorkflow
+
+  if (!debugLoggedOnce) {
+    debugLoggedOnce = true
+    const keys = normalizedWorkflow && typeof normalizedWorkflow === 'object'
+      ? Object.keys(normalizedWorkflow).slice(0, 10)
+      : []
+    const looksLikePrompt = isApiPromptFormat(normalizedWorkflow)
+    console.log('[graviton-bridge] import debug', {
+      looksLikePrompt,
+      keyCount: keys.length,
+      sampleKeys: keys,
+      hasWorkflowWrapper:
+        !!(workflow && typeof workflow === 'object' && workflow.workflow)
+    })
+    try {
+      const preview = JSON.stringify(normalizedWorkflow).slice(0, 400)
+      console.log('[graviton-bridge] import preview', preview)
+    } catch (_e) {
+      console.log('[graviton-bridge] import preview unavailable')
+    }
+  }
+
   const json = JSON.stringify(normalizedWorkflow)
   const file = new File([json], 'graviton-bridge.json', {
     type: 'application/json'
