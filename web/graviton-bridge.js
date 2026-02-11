@@ -1,6 +1,8 @@
 import { app } from "/scripts/app.js"
 
 const BRIDGE_NS = 'graviton-bridge'
+let bridgeReady = false
+const queuedMessages = []
 
 function postToParent(type, payload = {}) {
   window.parent?.postMessage(
@@ -38,6 +40,27 @@ function isApiPromptFormat(workflow) {
   })
 }
 
+function normalizeApiPrompt(workflow) {
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
+    return workflow
+  }
+  const normalized = {}
+  for (const [key, value] of Object.entries(workflow)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      typeof value.class_type === 'string' &&
+      value.inputs &&
+      typeof value.inputs === 'object' &&
+      !Array.isArray(value.inputs)
+    ) {
+      normalized[key] = value
+    }
+  }
+  return normalized
+}
+
 async function exportPromptSnapshot() {
   try {
     if (typeof app.graphToPrompt === 'function') {
@@ -72,15 +95,32 @@ async function waitForUiRuntimeReady(timeoutMs = 10000) {
   throw new Error('Timed out waiting for Comfy UI runtime initialization')
 }
 
+async function waitForHostReady(timeoutMs = 10000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const hasWindowApp = Boolean(window.app)
+    const hasWindowGraph = Boolean(window.graph)
+    // GraphCanvas sets this only after comfyApp.setup() fully returns.
+    const hasVueReady = Boolean(window.app && window.app.vueAppReady)
+    if (hasWindowApp && hasWindowGraph && hasVueReady) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error('Timed out waiting for host-ready state')
+}
+
 async function importWorkflow(workflow) {
   if (!workflow) throw new Error('Missing workflow payload')
   await waitForCanvasReady()
   await waitForUiRuntimeReady()
+  await waitForHostReady()
   if (typeof app.handleFile !== 'function') {
     throw new Error('Comfy app.handleFile is unavailable')
   }
 
-  const json = JSON.stringify(workflow)
+  const normalizedWorkflow = isApiPromptFormat(workflow)
+    ? normalizeApiPrompt(workflow)
+    : workflow
+  const json = JSON.stringify(normalizedWorkflow)
   const file = new File([json], 'graviton-bridge.json', {
     type: 'application/json'
   })
@@ -112,16 +152,37 @@ async function importWorkflow(workflow) {
 app.registerExtension({
   name: `${BRIDGE_NS}.iframe`,
   async setup() {
-    try {
-      await waitForCanvasReady()
-      await waitForUiRuntimeReady()
-      postToParent('ready', { version: 1, hasGraph: Boolean(app.graph) })
-    } catch (error) {
-      postToParent('error', {
-        stage: 'setup',
-        message: String(error?.message || error)
-      })
-    }
+    // Important: do not block extension setup; Comfy is still initializing stores.
+    ;(async () => {
+      try {
+        await waitForCanvasReady()
+        await waitForUiRuntimeReady()
+        await waitForHostReady()
+        bridgeReady = true
+        postToParent('ready', { version: 1, hasGraph: Boolean(app.graph) })
+
+        while (queuedMessages.length) {
+          const next = queuedMessages.shift()
+          if (!next) continue
+          if (next.type === 'import-workflow') {
+            try {
+              const applied = await importWorkflow(next.payload?.workflow)
+              postToParent('workflow-imported', { workflow: applied })
+            } catch (error) {
+              postToParent('error', {
+                stage: 'import-workflow',
+                message: String(error?.message || error)
+              })
+            }
+          }
+        }
+      } catch (error) {
+        postToParent('error', {
+          stage: 'setup',
+          message: String(error?.message || error)
+        })
+      }
+    })()
 
     window.addEventListener('message', async (event) => {
       const data = event?.data || {}
@@ -139,6 +200,10 @@ app.registerExtension({
       }
 
       if (data.type === 'import-workflow') {
+        if (!bridgeReady) {
+          queuedMessages.push({ type: data.type, payload: data.payload || {} })
+          return
+        }
         try {
           const workflow = data.payload?.workflow
           const applied = await importWorkflow(workflow)
