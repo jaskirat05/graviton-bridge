@@ -95,6 +95,7 @@ class GravitonSaveImage:
     RETURN_NAMES = ("asset_id", "asset_ref")
     FUNCTION = "save"
     CATEGORY = "graviton/io/save"
+    OUTPUT_NODE = True
 
     def save(self, image: Any, filename: str) -> tuple[str, str]:
         pil = _to_pil_from_image_tensor(image)
@@ -141,6 +142,7 @@ class GravitonSaveText:
     RETURN_NAMES = ("asset_id", "asset_ref")
     FUNCTION = "save"
     CATEGORY = "graviton/io/save"
+    OUTPUT_NODE = True
 
     def save(self, text: str, filename: str) -> tuple[str, str]:
         meta = _save_text(text or "", filename or "graviton_text.md", "text")
@@ -172,6 +174,7 @@ class GravitonSaveFile:
     RETURN_NAMES = ("asset_id", "asset_ref")
     FUNCTION = "save"
     CATEGORY = "graviton/io/save"
+    OUTPUT_NODE = True
 
     KIND = "file"
 
