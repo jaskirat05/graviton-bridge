@@ -34,11 +34,7 @@ Restart ComfyUI.
 - `GET /graviton-bridge/config` (effective config, secrets redacted)
 - `POST /graviton-bridge/config` (persist config to `custom_nodes/graviton_bridge/config.json`)
   - accepts either raw config object or `{ "config": { ... } }`
-  - accepts partial patch payloads (deep-merged with current config)
-  - requires env `GRAVITON_PAIRING_TOKEN` on server
-  - caller must send matching token via:
-    - `Authorization: Bearer <token>`, or
-    - `X-Graviton-Pairing-Token: <token>`
+  - currently mode-only write (`{ "mode": "local|orchestrator|s3|cloudinary" }`)
 
 Minimal control-plane examples:
 
@@ -46,19 +42,16 @@ Minimal control-plane examples:
 # Set local/orchestrator mode (parent URL comes from bridge env)
 curl -X POST "http://<child>/graviton-bridge/config" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <PAIRING_TOKEN>" \
   -d '{"mode":"local"}'
 
 # Switch to s3 mode
 curl -X POST "http://<child>/graviton-bridge/config" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <PAIRING_TOKEN>" \
   -d '{"mode":"s3"}'
 
 # Switch to cloudinary mode
 curl -X POST "http://<child>/graviton-bridge/config" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <PAIRING_TOKEN>" \
   -d '{"mode":"cloudinary"}'
 ```
 

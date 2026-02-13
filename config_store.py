@@ -10,23 +10,7 @@ CONFIG_PATH = ROOT_DIR / "config.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "mode": "local",
-    "orchestrator": {
-        "base_url": "",
-        "token": "",
-    },
-    "storage": {
-        "provider": "local",
-        "bucket": "",
-        "prefix": "",
-        "endpoint": "",
-        "region": "",
-        "access_key": "",
-        "secret_key": "",
-        "session_token": "",
-    },
 }
-
-_SECRET_KEYS = {"token", "access_key", "secret_key", "session_token"}
 
 
 def _read_file_config() -> dict[str, Any]:
@@ -41,33 +25,12 @@ def _read_file_config() -> dict[str, Any]:
     return {}
 
 
-def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
-    merged: dict[str, Any] = dict(base)
-    for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def _mask_secrets(data: Any) -> Any:
-    if isinstance(data, dict):
-        out = {}
-        for key, value in data.items():
-            if key in _SECRET_KEYS and isinstance(value, str) and value:
-                out[key] = "***"
-            else:
-                out[key] = _mask_secrets(value)
-        return out
-    if isinstance(data, list):
-        return [_mask_secrets(v) for v in data]
-    return data
-
-
 def load_effective_config() -> dict[str, Any]:
     loaded = _read_file_config()
-    return _deep_merge(DEFAULT_CONFIG, loaded) if loaded else dict(DEFAULT_CONFIG)
+    if not loaded:
+        return dict(DEFAULT_CONFIG)
+    mode = str(loaded.get("mode", DEFAULT_CONFIG["mode"])).strip().lower()
+    return {"mode": mode or DEFAULT_CONFIG["mode"]}
 
 
 def validate_config(config: dict[str, Any]) -> None:
@@ -78,18 +41,7 @@ def validate_config(config: dict[str, Any]) -> None:
 
 def save_file_config(config: dict[str, Any]) -> dict[str, Any]:
     validate_config(config)
-    CONFIG_PATH.write_text(
-        json.dumps(config, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    return config
-
-
-def apply_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
-    current = load_effective_config()
-    merged = _deep_merge(current, patch)
-    return save_file_config(merged)
-
-
-def sanitize_for_response(config: dict[str, Any]) -> dict[str, Any]:
-    return _mask_secrets(config)
+    mode = str(config.get("mode", DEFAULT_CONFIG["mode"])).strip().lower()
+    saved = {"mode": mode}
+    CONFIG_PATH.write_text(json.dumps(saved, indent=2, sort_keys=True), encoding="utf-8")
+    return saved
