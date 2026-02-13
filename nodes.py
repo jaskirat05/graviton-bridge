@@ -81,6 +81,16 @@ def _extract_asset_id(raw_ref: str) -> str:
     return value
 
 
+def _require_asset_id(asset_ref: str) -> str:
+    asset_id = _extract_asset_id(asset_ref)
+    if not asset_id:
+        raise ValueError(
+            "asset_ref resolved to empty value. "
+            "Check chain template (e.g. {{ step_id.output.output }}) and upstream step output."
+        )
+    return asset_id
+
+
 class GravitonSaveImage:
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
@@ -97,7 +107,7 @@ class GravitonSaveImage:
     CATEGORY = "graviton/io/save"
     OUTPUT_NODE = True
 
-    def save(self, image: Any, filename: str) -> tuple[str, str]:
+    def save(self, image: Any, filename: str) -> dict[str, Any]:
         pil = _to_pil_from_image_tensor(image)
         buf = io.BytesIO()
         pil.save(buf, format="PNG")
@@ -108,7 +118,12 @@ class GravitonSaveImage:
             kind="image",
             mime_type="image/png",
         )
-        return (asset_ref.asset_id, json.dumps(asset_ref.to_dict()))
+        asset_id = asset_ref.asset_id
+        asset_ref_json = json.dumps(asset_ref.to_dict())
+        return {
+            "ui": {"asset_id": [asset_id], "asset_ref": [asset_ref_json]},
+            "result": (asset_id, asset_ref_json),
+        }
 
 
 class GravitonLoadImage:
@@ -123,7 +138,7 @@ class GravitonLoadImage:
 
     def load(self, asset_ref: str) -> tuple[Any]:
         provider = get_asset_provider()
-        payload = provider.get_bytes(_extract_asset_id(asset_ref))
+        payload = provider.get_bytes(_require_asset_id(asset_ref))
         img = Image.open(io.BytesIO(payload))
         return (_to_image_tensor_from_pil(img),)
 
@@ -144,9 +159,14 @@ class GravitonSaveText:
     CATEGORY = "graviton/io/save"
     OUTPUT_NODE = True
 
-    def save(self, text: str, filename: str) -> tuple[str, str]:
+    def save(self, text: str, filename: str) -> dict[str, Any]:
         meta = _save_text(text or "", filename or "graviton_text.md", "text")
-        return (meta["asset_id"], json.dumps(meta))
+        asset_id = meta["asset_id"]
+        asset_ref_json = json.dumps(meta)
+        return {
+            "ui": {"asset_id": [asset_id], "asset_ref": [asset_ref_json]},
+            "result": (asset_id, asset_ref_json),
+        }
 
 
 class GravitonLoadText:
@@ -161,7 +181,7 @@ class GravitonLoadText:
 
     def load(self, asset_ref: str) -> tuple[str]:
         provider = get_asset_provider()
-        payload = provider.get_bytes(_extract_asset_id(asset_ref))
+        payload = provider.get_bytes(_require_asset_id(asset_ref))
         return (payload.decode("utf-8"),)
 
 
@@ -178,9 +198,14 @@ class GravitonSaveFile:
 
     KIND = "file"
 
-    def save(self, source_path: str) -> tuple[str, str]:
+    def save(self, source_path: str) -> dict[str, Any]:
         meta = _save_file_from_path(source_path, self.KIND)
-        return (meta["asset_id"], json.dumps(meta))
+        asset_id = meta["asset_id"]
+        asset_ref_json = json.dumps(meta)
+        return {
+            "ui": {"asset_id": [asset_id], "asset_ref": [asset_ref_json]},
+            "result": (asset_id, asset_ref_json),
+        }
 
 
 class GravitonLoadFile:
@@ -195,7 +220,7 @@ class GravitonLoadFile:
 
     def load(self, asset_ref: str) -> tuple[str]:
         provider = get_asset_provider()
-        blob = provider.resolve_local_path(_extract_asset_id(asset_ref))
+        blob = provider.resolve_local_path(_require_asset_id(asset_ref))
         if blob is None:
             raise ValueError("Asset not found")
         return (str(blob),)
