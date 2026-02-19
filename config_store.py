@@ -10,6 +10,7 @@ CONFIG_PATH = ROOT_DIR / "config.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "mode": "local",
+    "config_version": "",
     "orchestrator": {
         "base_url": "",
         "token": "",
@@ -68,9 +69,11 @@ def _normalize_section(value: Any, defaults: dict[str, Any]) -> dict[str, str]:
 
 def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     mode = _normalize_mode(config.get("mode", DEFAULT_CONFIG["mode"]))
+    config_version = _normalize_string(config.get("config_version", DEFAULT_CONFIG["config_version"]))
 
     normalized = {
         "mode": mode,
+        "config_version": config_version,
         "orchestrator": _normalize_section(config.get("orchestrator"), DEFAULT_CONFIG["orchestrator"]),
         "s3": _normalize_section(config.get("s3"), DEFAULT_CONFIG["s3"]),
         "cloudinary": _normalize_section(config.get("cloudinary"), DEFAULT_CONFIG["cloudinary"]),
@@ -82,6 +85,7 @@ def _env_config() -> dict[str, Any]:
     return normalize_config(
         {
             "mode": os.getenv("GRAVITON_BRIDGE_MODE", DEFAULT_CONFIG["mode"]),
+            "config_version": os.getenv("GRAVITON_BRIDGE_CONFIG_VERSION", DEFAULT_CONFIG["config_version"]),
             "orchestrator": {
                 "base_url": os.getenv("GRAVITON_ORCHESTRATOR_BASE_URL", ""),
                 "token": os.getenv("GRAVITON_ORCHESTRATOR_TOKEN", ""),
@@ -110,6 +114,7 @@ def load_effective_config() -> dict[str, Any]:
         merged = normalize_config(
             {
                 "mode": loaded.get("mode", DEFAULT_CONFIG["mode"]),
+                "config_version": loaded.get("config_version", DEFAULT_CONFIG["config_version"]),
                 "orchestrator": {
                     **DEFAULT_CONFIG["orchestrator"],
                     **(loaded.get("orchestrator") if isinstance(loaded.get("orchestrator"), dict) else {}),
@@ -152,6 +157,7 @@ def save_file_config(config: dict[str, Any]) -> dict[str, Any]:
 
     merged = {
         "mode": config.get("mode", file_current["mode"]),
+        "config_version": config.get("config_version", file_current["config_version"]),
         "orchestrator": {
             **file_current["orchestrator"],
             **(config.get("orchestrator") if isinstance(config.get("orchestrator"), dict) else {}),
