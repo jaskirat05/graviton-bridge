@@ -5,13 +5,18 @@ import hmac
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from aiohttp import web
+from dotenv import load_dotenv
 
 from .constants import ROOT_DIR
 
 _WORKER_ID_PATH = ROOT_DIR / ".worker_id"
+
+# Load project-root .env defaults once; process env still takes precedence.
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=False)
 
 _NONCE_CACHE: Dict[str, float] = {}
 
