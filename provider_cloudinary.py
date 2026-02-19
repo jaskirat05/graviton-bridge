@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
-import os
 import tempfile
 import time
 import uuid
@@ -13,24 +12,29 @@ from urllib.parse import quote
 import httpx
 
 from .asset_ref import AssetRef
+from .config_store import load_effective_config
 from .provider_base import AssetProvider
 
 
 class CloudinaryAssetProvider(AssetProvider):
     def __init__(self) -> None:
-        self.cloud_name = os.getenv("GRAVITON_CLOUDINARY_CLOUD_NAME", "").strip()
-        self.api_key = os.getenv("GRAVITON_CLOUDINARY_API_KEY", "").strip()
-        self.api_secret = os.getenv("GRAVITON_CLOUDINARY_API_SECRET", "").strip()
-        self.folder = os.getenv("GRAVITON_CLOUDINARY_FOLDER", "").strip().strip("/")
+        cfg = load_effective_config().get("cloudinary", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        self.cloud_name = str(cfg.get("cloud_name", "")).strip()
+        self.api_key = str(cfg.get("api_key", "")).strip()
+        self.api_secret = str(cfg.get("api_secret", "")).strip()
+        self.folder = str(cfg.get("folder", "")).strip().strip("/")
 
         if not self.cloud_name:
             raise ValueError(
-                "Missing Cloudinary cloud name: set GRAVITON_CLOUDINARY_CLOUD_NAME"
+                "Missing Cloudinary cloud name in bridge config (cloudinary.cloud_name)"
             )
         if not self.api_key or not self.api_secret:
             raise ValueError(
-                "Missing Cloudinary credentials: set GRAVITON_CLOUDINARY_API_KEY and "
-                "GRAVITON_CLOUDINARY_API_SECRET"
+                "Missing Cloudinary credentials in bridge config "
+                "(cloudinary.api_key, cloudinary.api_secret)"
             )
 
         self.upload_base = f"https://api.cloudinary.com/v1_1/{self.cloud_name}"

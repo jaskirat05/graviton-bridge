@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -10,16 +9,21 @@ from urllib.parse import urljoin
 import httpx
 
 from .asset_ref import AssetRef
+from .config_store import load_effective_config
 from .provider_base import AssetProvider
 
 
 class OrchestratorAssetProvider(AssetProvider):
     def __init__(self) -> None:
-        base_url = os.getenv("GRAVITON_ORCHESTRATOR_BASE_URL", "").strip()
-        token = os.getenv("GRAVITON_ORCHESTRATOR_TOKEN", "").strip()
+        cfg = load_effective_config().get("orchestrator", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        base_url = str(cfg.get("base_url", "")).strip()
+        token = str(cfg.get("token", "")).strip()
         if not base_url:
             raise ValueError(
-                "Missing orchestrator base URL: set GRAVITON_ORCHESTRATOR_BASE_URL"
+                "Missing orchestrator base_url in bridge config (orchestrator.base_url)"
             )
 
         self.base_url = base_url.rstrip("/") + "/"

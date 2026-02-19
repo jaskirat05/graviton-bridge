@@ -34,52 +34,43 @@ Restart ComfyUI.
 - `GET /graviton-bridge/config` (effective config, secrets redacted)
 - `POST /graviton-bridge/config` (persist config to `custom_nodes/graviton_bridge/config.json`)
   - accepts either raw config object or `{ "config": { ... } }`
-  - currently mode-only write (`{ "mode": "local|orchestrator|s3|cloudinary" }`)
+  - `mode` is required
+- `GET /graviton-bridge/control/status` (worker identity + auth/config status)
+
+Control-plane security for `POST /graviton-bridge/config`:
+- requires HMAC headers:
+  - `X-Graviton-Timestamp` (unix seconds)
+  - `X-Graviton-Nonce` (unique request id)
+  - `X-Graviton-Signature` (hex HMAC-SHA256)
+- signature input: `METHOD\nPATH\nTIMESTAMP\nNONCE\nRAW_BODY`
+- required env on worker:
+  - `GRAVITON_BRIDGE_CONTROL_HMAC_SECRET`
+  - optional: `GRAVITON_WORKER_ID`
+  - optional: `GRAVITON_BRIDGE_CONTROL_MAX_SKEW_SECONDS` (default `60`)
+  - optional: `GRAVITON_BRIDGE_CONTROL_NONCE_TTL_SECONDS` (default `300`)
 
 Minimal control-plane examples:
 
 ```bash
-# Set local/orchestrator mode (parent URL comes from bridge env)
-curl -X POST "http://<child>/graviton-bridge/config" \
-  -H "Content-Type: application/json" \
-  -d '{"mode":"local"}'
+# Worker status (identity + config/auth state)
+curl "http://<worker>/graviton-bridge/control/status"
 
-# Switch to s3 mode
-curl -X POST "http://<child>/graviton-bridge/config" \
-  -H "Content-Type: application/json" \
-  -d '{"mode":"s3"}'
+# Signed config update (mode + provider settings)
+BODY='{"mode":"s3","s3":{"bucket":"my-bucket","region":"us-east-1","prefix":"graviton","access_key":"AKIA...","secret_key":"..."}}'
+TS=$(date +%s)
+NONCE=$(uuidgen | tr 'A-Z' 'a-z')
+MSG=$(printf 'POST\n/graviton-bridge/config\n%s\n%s\n%s' "$TS" "$NONCE" "$BODY")
+SIG=$(printf '%s' "$MSG" | openssl dgst -sha256 -hmac "$GRAVITON_BRIDGE_CONTROL_HMAC_SECRET" -hex | awk '{print $2}')
 
-# Switch to cloudinary mode
-curl -X POST "http://<child>/graviton-bridge/config" \
+curl -X POST "http://<worker>/graviton-bridge/config" \
   -H "Content-Type: application/json" \
-  -d '{"mode":"cloudinary"}'
+  -H "X-Graviton-Timestamp: $TS" \
+  -H "X-Graviton-Nonce: $NONCE" \
+  -H "X-Graviton-Signature: $SIG" \
+  -d "$BODY"
 ```
 
-### S3 provider mode
-
-- Set bridge config `mode` to `s3`.
-- Requires `boto3` + `botocore` installed in the Comfy Python env.
-- Configure S3 connection in bridge env:
-  - `GRAVITON_S3_BUCKET` (required)
-  - `GRAVITON_S3_REGION` (required)
-  - `GRAVITON_S3_ACCESS_KEY` (required)
-  - `GRAVITON_S3_SECRET_KEY` (required)
-  - `GRAVITON_S3_PREFIX` (optional)
-
-### Orchestrator provider env
-
-- For `mode=local`/`mode=orchestrator`, bridge reads:
-  - `GRAVITON_ORCHESTRATOR_BASE_URL` (required)
-  - `GRAVITON_ORCHESTRATOR_TOKEN` (optional)
-
-### Cloudinary provider env
-
-- Set bridge config `mode` to `cloudinary`.
-- Configure Cloudinary connection in bridge env:
-  - `GRAVITON_CLOUDINARY_CLOUD_NAME` (required)
-  - `GRAVITON_CLOUDINARY_API_KEY` (required)
-  - `GRAVITON_CLOUDINARY_API_SECRET` (required)
-  - `GRAVITON_CLOUDINARY_FOLDER` (optional)
+Provider config source rule: if `config.json` exists, bridge uses only config file values; if `config.json` does not exist, bridge falls back to provider env vars.
 
 ### Nodes
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
-import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -11,24 +10,29 @@ from pathlib import Path
 from typing import Any
 
 from .asset_ref import AssetRef
+from .config_store import load_effective_config
 from .provider_base import AssetProvider
 
 
 class S3AssetProvider(AssetProvider):
     def __init__(self) -> None:
-        self.bucket = os.getenv("GRAVITON_S3_BUCKET", "").strip()
-        self.region = os.getenv("GRAVITON_S3_REGION", "").strip()
-        self.prefix = os.getenv("GRAVITON_S3_PREFIX", "").strip().strip("/")
-        self.access_key = os.getenv("GRAVITON_S3_ACCESS_KEY", "").strip()
-        self.secret_key = os.getenv("GRAVITON_S3_SECRET_KEY", "").strip()
+        cfg = load_effective_config().get("s3", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        self.bucket = str(cfg.get("bucket", "")).strip()
+        self.region = str(cfg.get("region", "")).strip()
+        self.prefix = str(cfg.get("prefix", "")).strip().strip("/")
+        self.access_key = str(cfg.get("access_key", "")).strip()
+        self.secret_key = str(cfg.get("secret_key", "")).strip()
 
         if not self.bucket:
-            raise ValueError("Missing S3 bucket: set GRAVITON_S3_BUCKET")
+            raise ValueError("Missing S3 bucket in bridge config (s3.bucket)")
         if not self.region:
-            raise ValueError("Missing S3 region: set GRAVITON_S3_REGION")
+            raise ValueError("Missing S3 region in bridge config (s3.region)")
         if not self.access_key or not self.secret_key:
             raise ValueError(
-                "Missing S3 credentials: set GRAVITON_S3_ACCESS_KEY and GRAVITON_S3_SECRET_KEY"
+                "Missing S3 credentials in bridge config (s3.access_key, s3.secret_key)"
             )
 
         self._s3 = self._build_client()
