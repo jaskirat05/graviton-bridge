@@ -80,8 +80,9 @@ Provider config source rule: if `config.json` exists, bridge uses only config fi
   - full serialized canonical `asset_ref` JSON.
 
 - `GravitonSaveImage` / `GravitonLoadImage`
+- `GravitonSaveImagesBatch` / `GravitonLoadImagesBatch`
 - `GravitonSaveText` / `GravitonLoadText`
 - `GravitonSaveFile` / `GravitonLoadFile`
-- `GravitonSaveVideo` / `GravitonLoadVideo` (path-based payload handling for now)
-- `GravitonSaveAudio` / `GravitonLoadAudio` (path-based payload handling for now)
-- `GravitonSave3D` / `GravitonLoad3D` (path-based payload handling for now)
+- `GravitonSaveVideo` / `GravitonLoadVideo` (native `VIDEO`)
+- `GravitonSaveAudio` / `GravitonLoadAudio` (native `AUDIO`)
+- `GravitonSave3D` / `GravitonLoad3D` (native `FILE3DANY`)
